@@ -1860,6 +1860,7 @@ void NDSCartSlot::WriteROMCnt(u32 val) noexcept
         Log(LogLevel::Debug, "seed1: %02X%08X\n", (u32)(seed1>>32), (u32)seed1);
         Log(LogLevel::Debug, "key2 X: %02X%08X\n", (u32)(Key2_X>>32), (u32)Key2_X);
         Log(LogLevel::Debug, "key2 Y: %02X%08X\n", (u32)(Key2_Y>>32), (u32)Key2_Y);
+        Cart->ROMApplySeed(NDS);
     }
 
     // transfers will only start when bit31 changes from 0 to 1

@@ -1855,6 +1855,23 @@ bool EmuInstance::loadROM(QStringList filepath, bool reset, QString& errorstr)
     std::string basepath;
     std::string romname;
 
+    std::unique_ptr<NDSCart::CartCommon> cart = nullptr;
+    bool cartIsProxy = false;
+    std::string savname = "";
+
+    for (int i = 0; i < filepath.count(); i++)
+    {
+        std::string filename = filepath.at(i).toStdString();
+        if (filename.find("/dev/tty") == 0)
+        {
+            cart = std::make_unique<NDSCart::CartCapture>(filename, this);
+            cartIsProxy = true;
+            break;
+        }
+    } 
+
+    if (!cart)
+    {
     if (!loadROMData(filepath, filedata, filelen, basepath, romname))
     {
         errorstr = "Failed to load the DS ROM.";
@@ -1870,7 +1887,7 @@ bool EmuInstance::loadROM(QStringList filepath, bool reset, QString& errorstr)
     u32 savelen = 0;
     std::unique_ptr<u8[]> savedata = nullptr;
 
-    std::string savname = getAssetPath(false, localCfg.GetString("SaveFilePath"), ".sav");
+    savname = getAssetPath(false, localCfg.GetString("SaveFilePath"), ".sav");
     std::string origsav = savname;
     savname += instanceFileSuffix();
 
@@ -1910,7 +1927,9 @@ bool EmuInstance::loadROM(QStringList filepath, bool reset, QString& errorstr)
             .SRAMLength = savelen,
     };
 
-    auto cart = NDSCart::ParseROM(std::move(filedata), filelen, this, std::move(cartargs));
+    cart = NDSCart::ParseROM(std::move(filedata), filelen, this, std::move(cartargs));
+    }
+    
     if (!cart)
     {
         // If we couldn't parse the ROM...
@@ -1932,7 +1951,7 @@ bool EmuInstance::loadROM(QStringList filepath, bool reset, QString& errorstr)
         initFirmwareSaveManager();
         nds->Reset();
 
-        if (globalCfg.GetBool("Emu.DirectBoot") || nds->NeedsDirectBoot())
+        if (!cartIsProxy && (globalCfg.GetBool("Emu.DirectBoot") || nds->NeedsDirectBoot()))
         { // If direct boot is enabled or forced...
             nds->SetupDirectBoot(romname);
         }
@@ -1955,7 +1974,8 @@ bool EmuInstance::loadROM(QStringList filepath, bool reset, QString& errorstr)
     }
 
     cartType = 0;
-    ndsSave = std::make_unique<SaveManager>(savname);
+    if (!cartIsProxy)
+        ndsSave = std::make_unique<SaveManager>(savname);
 
     return true; // success
 }

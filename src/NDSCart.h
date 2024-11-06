@@ -45,7 +45,8 @@ enum CartType
     RetailIR = 0x103,
     RetailBT = 0x104,
     Homebrew = 0x201,
-    UnlicensedR4 = 0x301
+    UnlicensedR4 = 0x301,
+    Capture = 0x401
 };
 
 class NDSCartSlot;
@@ -98,6 +99,8 @@ public:
     virtual const u8* GetSaveMemory() const { return nullptr; }
     virtual u32 GetSaveMemoryLength() const { return 0; }
     virtual void SetSaveMemory(const u8* savedata, u32 savelen) {};
+
+    virtual void ROMApplySeed(NDS& nds) {};
 
     [[nodiscard]] const NDSHeader& GetHeader() const { return Header; }
     [[nodiscard]] NDSHeader& GetHeader() { return Header; }
@@ -354,6 +357,25 @@ private:
     CartR4Type R4CartType;
     CartR4Language CartLanguage;
     bool BufferInitialized;
+};
+
+class CartCapture : public CartCommon
+{
+public:
+    CartCapture(std::string path, void *userdata);
+    ~CartCapture() override;
+
+    void Reset() override;
+
+    int ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, const u8* cmd, u8* data, u32 len) override;
+    void ROMCommandFinish(const u8* cmd, u8* data, u32 len) override;
+
+    void ROMApplySeed(NDS& nds) override;
+
+    u8 SPIWrite(u8 val, u32 pos, bool last) override;
+
+private:
+    int fd;
 };
 
 class NDSCartSlot
