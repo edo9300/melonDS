@@ -53,6 +53,10 @@ static int fd_write(int fd, uint8_t *buffer, size_t len) {
     return len;
 }
 
+static uint64_t get_timestamp(void) {
+    return (uint64_t) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 namespace melonDS
 {
 using Platform::Log;
@@ -64,7 +68,13 @@ namespace NDSCart
 CartCapture::CartCapture(std::string filename, void *userdata)
     : CartCommon(std::make_unique<u8[]>(0x8000), 0, 0, false, {0,0,0}, CartType::Capture, userdata)
 {
+    char logFileName[128];
     struct termios tty;
+
+    snprintf(logFileName, sizeof(logFileName), "ntrcard_%ld.csv", get_timestamp());
+    logFile = fopen(logFileName, "w");
+    if (logFile != nullptr)
+        fprintf(logFile, "Type,Direction,Timestamp,Flags,C[0],C[1],C[2],C[3],C[4],C[5],C[6],C[7],Data\n");
 
     fd = open(filename.c_str(), O_RDWR | O_NOCTTY);
 
@@ -155,6 +165,16 @@ int CartCapture::ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, const
     for (u32 i = len; i < rxLen; i++)
         fd_read(fd, &tmp, 1);
 
+    if (logFile != nullptr) {
+        fprintf(logFile, "ROM,Read,%ld,%08X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,",
+                get_timestamp(), romCnt, cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7]);
+        for (u32 i = 0; i < len; i++) {
+            fprintf(logFile, "%02X ", data[i]);
+        }
+        fprintf(logFile, "\n");
+        fflush(logFile);
+    }
+
     u32 copy_offset = rxLen;
     while (copy_offset < len) {
         u32 to_copy = len - copy_offset;
@@ -203,6 +223,16 @@ void CartCapture::ROMCommandFinish(const u8* cmd, u8* data, u32 len)
     fd_read(fd, data, len < rxLen ? len : rxLen);
     for (u32 i = len; i < rxLen; i++)
         fd_read(fd, &tmp, 1);
+
+    if (logFile != nullptr) {
+        fprintf(logFile, "ROM,Write,%ld,%08X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,",
+                get_timestamp(), romCnt, cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7]);
+        for (u32 i = 0; i < len; i++) {
+            fprintf(logFile, "%02X ", data[i]);
+        }
+        fprintf(logFile, "\n");
+        fflush(logFile);
+    }
 }
 
 u8 CartCapture::SPIWrite(u8 val, u32 pos, bool last)
@@ -216,6 +246,12 @@ u8 CartCapture::SPIWrite(u8 val, u32 pos, bool last)
     data[3] = spiCnt >> 8;
     fd_write(fd, data, 4);
     fd_read(fd, data, 4);
+
+    if (logFile != nullptr) {
+        fprintf(logFile, "SPI,Exchange,%ld,%04X,%02X,%02X,,,,,,,\n",
+                get_timestamp(), spiCnt, val, data[1]);
+        fflush(logFile);
+    }
 
     return data[1];
 }

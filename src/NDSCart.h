@@ -376,6 +376,7 @@ public:
 
 private:
     int fd;
+    FILE *logFile;
 };
 
 class NDSCartSlot
