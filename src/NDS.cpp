@@ -3091,6 +3091,7 @@ u32 NDS::ARM9IORead32(u32 addr)
                   (NDSCartSlot.GetROMCommand(7) << 24);
         return 0;
 
+    case 0x04000204: return ExMemCnt[0];
     case 0x04000208: return IME[0];
     case 0x04000210: return IE[0];
     case 0x04000214: return IF[0];
@@ -3586,6 +3587,7 @@ void NDS::ARM9IOWrite32(u32 addr, u32 val)
     case 0x040001B0: *(u32*)&ROMSeed0[0] = val; return;
     case 0x040001B4: *(u32*)&ROMSeed1[0] = val; return;
 
+    case 0x04000204: NDS::ARM9IOWrite16(addr, val); return;
     case 0x04000208: IME[0] = val & 0x1; UpdateIRQ(0); return;
     case 0x04000210: IE[0] = val; UpdateIRQ(0); return;
     case 0x04000214: IF[0] &= ~val; GPU.GPU3D.CheckFIFOIRQ(); UpdateIRQ(0); return;
