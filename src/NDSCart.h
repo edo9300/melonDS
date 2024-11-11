@@ -100,7 +100,8 @@ public:
     virtual u32 GetSaveMemoryLength() const { return 0; }
     virtual void SetSaveMemory(const u8* savedata, u32 savelen) {};
 
-    virtual void ROMApplySeed(NDS& nds) {};
+    virtual void OnROMApplySeed(NDS& nds) {};
+    virtual void OnROMWriteSPICnt(NDS& nds) {};
 
     [[nodiscard]] const NDSHeader& GetHeader() const { return Header; }
     [[nodiscard]] NDSHeader& GetHeader() { return Header; }
@@ -370,7 +371,8 @@ public:
     int ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, const u8* cmd, u8* data, u32 len) override;
     void ROMCommandFinish(const u8* cmd, u8* data, u32 len) override;
 
-    void ROMApplySeed(NDS& nds) override;
+    void OnROMApplySeed(NDS& nds) override;
+    void OnROMWriteSPICnt(NDS& nds) override;
 
     u8 SPIWrite(u8 val, u32 pos, bool last) override;
 

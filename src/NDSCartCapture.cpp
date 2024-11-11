@@ -101,12 +101,14 @@ void CartCapture::Reset()
 #define CMD_NTR_START  0x10
 // 0x11 [3:bufsize] [data...]
 #define CMD_NTR_FINISH 0x11
-// 0x12 [value] [2:flags]
+// 0x12 [value]
 #define CMD_NTR_SPI    0x12
 // 0x13 [1:empty] [1:seed0h] [1:seed1h] [4:seed0l] [4:seed0h]
 #define CMD_NTR_SET_SEED 0x13
+// 0x14 [value] [2:flags]
+#define CMD_NTR_SPICNT 0x14
 
-void CartCapture::ROMApplySeed(NDS& nds)
+void CartCapture::OnROMApplySeed(NDS& nds)
 {
     u8 txData[16];
     u32 snum = (nds.ExMemCnt[0]>>8)&0x8;
@@ -127,7 +129,18 @@ void CartCapture::ROMApplySeed(NDS& nds)
     txData[13] = romCnt >> 8;
     txData[14] = romCnt >> 16;
     txData[15] = romCnt >> 24;
-    fd_write(fd, txData, 16);
+    fd_write(fd, txData, sizeof(txData));
+}
+
+void CartCapture::OnROMWriteSPICnt(NDS& nds)
+{
+    u8 txData[4];
+    u16 spiCnt = nds.NDSCartSlot.GetSPICnt() & (~0x80);
+    txData[0] = CMD_NTR_SPICNT;
+    txData[1] = 0;
+    txData[2] = spiCnt;
+    txData[3] = spiCnt >> 8;
+    fd_write(fd, txData, sizeof(txData));
 }
 
 int CartCapture::ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, const u8* cmd, u8* data, u32 len)
@@ -237,15 +250,13 @@ void CartCapture::ROMCommandFinish(const u8* cmd, u8* data, u32 len)
 
 u8 CartCapture::SPIWrite(u8 val, u32 pos, bool last)
 {
-    u8 data[4] = {0};
-    u16 spiCnt = NDS::Current->NDSCartSlot.GetSPICnt();
+    u8 data[2] = {0};
+    u16 spiCnt = NDS::Current->NDSCartSlot.GetSPICnt() & ~0x80;
 
     data[0] = CMD_NTR_SPI;
     data[1] = val;
-    data[2] = spiCnt;
-    data[3] = spiCnt >> 8;
-    fd_write(fd, data, 4);
-    fd_read(fd, data, 4);
+    fd_write(fd, data, 2);
+    fd_read(fd, data, 2);
 
     if (logFile != nullptr) {
         fprintf(logFile, "SPI,Exchange,%ld,%04X,%02X,%02X,,,,,,,\n",

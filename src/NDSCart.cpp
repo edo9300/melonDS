@@ -1860,7 +1860,7 @@ void NDSCartSlot::WriteROMCnt(u32 val) noexcept
         Log(LogLevel::Debug, "seed1: %02X%08X\n", (u32)(seed1>>32), (u32)seed1);
         Log(LogLevel::Debug, "key2 X: %02X%08X\n", (u32)(Key2_X>>32), (u32)Key2_X);
         Log(LogLevel::Debug, "key2 Y: %02X%08X\n", (u32)(Key2_Y>>32), (u32)Key2_Y);
-        Cart->ROMApplySeed(NDS);
+        Cart->OnROMApplySeed(NDS);
     }
 
     // transfers will only start when bit31 changes from 0 to 1
@@ -1993,6 +1993,8 @@ void NDSCartSlot::WriteSPICnt(u16 val) noexcept
     // if the transfer speed is changed, the transfer continues at the new speed (TODO)
     if (SPICnt & (1<<7))
         Log(LogLevel::Debug, "!! CHANGING AUXSPICNT DURING TRANSFER: %04X\n", val);
+
+    Cart->OnROMWriteSPICnt(NDS);
 }
 
 void NDSCartSlot::SPITransferDone(u32 param) noexcept
@@ -2011,6 +2013,7 @@ u8 NDSCartSlot::ReadSPIData() const noexcept
 
 void NDSCartSlot::WriteSPIData(u8 val) noexcept
 {
+    printf("spi write %02X %04X\n", val, SPICnt);
     if (!(SPICnt & (1<<15))) return;
     if (!(SPICnt & (1<<13))) return;
     if (SPICnt & (1<<7)) return;
