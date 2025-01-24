@@ -1172,23 +1172,25 @@ QStringList MainWindow::splitArchivePath(const QString& filename, bool useMember
     }
 #endif
 
-    if (!QFileInfo(filename).exists())
-    {
-        QMessageBox::warning(this, "melonDS", "This ROM file does not exist.");
-        return {};
-    }
+    if(!filename.startsWith("\\\\.\\COM")) {
+        if (!QFileInfo(filename).exists())
+        {
+            QMessageBox::warning(this, "melonDS", "This ROM file does not exist.");
+            return {};
+        }
 
 #ifdef ARCHIVE_SUPPORT_ENABLED
-    if (SupportedArchiveByExtension(filename)
-        || SupportedArchiveByMimetype(QMimeDatabase().mimeTypeForFile(filename)))
-    {
-        const QString subfile = pickFileFromArchive(filename);
-        if (subfile.isEmpty())
-            return {};
+        if (SupportedArchiveByExtension(filename)
+            || SupportedArchiveByMimetype(QMimeDatabase().mimeTypeForFile(filename)))
+        {
+            const QString subfile = pickFileFromArchive(filename);
+            if (subfile.isEmpty())
+                return {};
 
-        return { filename, subfile };
-    }
+            return { filename, subfile };
+        }
 #endif
+    }
 
     return { filename };
 }

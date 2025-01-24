@@ -18,7 +18,14 @@
 
 #include <cstdio>
 #include <cstring>
+#ifdef _WIN32
+#define _WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <fcntl.h>
+#else
 #include <termios.h>
+#endif
+#include <cinttypes>
 #include <unistd.h>
 #include "NDS.h"
 #include "DSi.h"
@@ -57,6 +64,96 @@ static uint64_t get_timestamp(void) {
     return (uint64_t) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
+#ifdef _WIN32
+static int open_serial(const char* name) {
+    DCB dcb;
+    COMMTIMEOUTS timeouts;
+
+    auto handle = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+
+    if(handle == INVALID_HANDLE_VALUE)
+        return -1;
+
+    if(!GetCommState(handle, &dcb)) {
+        CloseHandle(handle);
+        return -1;
+    }
+
+    if(!GetCommTimeouts(handle, &timeouts)) {
+        CloseHandle(handle);
+        return -1;
+    }
+
+    dcb.fParity = 1;
+    dcb.BaudRate = 0;
+    dcb.ByteSize = 8;
+    dcb.Parity = NOPARITY;
+    dcb.StopBits = ONESTOPBIT;
+    dcb.fRtsControl = RTS_CONTROL_DISABLE;
+    dcb.fOutxCtsFlow = FALSE;
+    dcb.fOutX = FALSE;
+    dcb.fInX = FALSE;
+    dcb.fTXContinueOnXoff = FALSE;
+    dcb.fDtrControl = DTR_CONTROL_DISABLE;
+    dcb.fOutxDsrFlow = FALSE;
+    dcb.fDsrSensitivity = FALSE;
+    dcb.XonChar = 0;
+    dcb.XoffChar = 0;
+    dcb.XonLim = 0;
+    dcb.XoffLim = 0;
+    dcb.EofChar = 0;
+    dcb.fBinary = 1;
+    dcb.EvtChar = '\n';
+
+    if(!SetCommState(handle, &dcb)) {
+        CloseHandle(handle);
+        return -1;
+    }
+
+    timeouts.ReadTotalTimeoutConstant = 0;
+    timeouts.ReadIntervalTimeout = 0;
+    timeouts.ReadTotalTimeoutMultiplier = 0;
+
+    timeouts.WriteTotalTimeoutConstant = 0;
+    timeouts.WriteTotalTimeoutMultiplier = 0;
+    timeouts.ReadIntervalTimeout = MAXDWORD;
+    timeouts.ReadTotalTimeoutConstant = 0;
+    timeouts.ReadTotalTimeoutMultiplier = 0;
+
+    if(!SetCommTimeouts(handle, &timeouts)) {
+        CloseHandle(handle);
+        return -1;
+    }
+
+    auto fd = _open_osfhandle((intptr_t)handle, O_RDWR);
+
+    if(fd == -1) {
+        CloseHandle(handle);
+    }
+
+    return fd;
+}
+
+#else
+
+static int open_serial(const char* name) {
+    struct termios tty;
+    int fd = open(name, O_RDWR | O_NOCTTY);
+
+    tcgetattr(fd, &tty);
+
+    tty.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    tty.c_oflag &= ~(OPOST);
+    tty.c_cflag |= (CS8);
+    tty.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+
+    tcsetattr(fd, TCSAFLUSH, &tty);
+
+    return fd;
+}
+
+#endif
+
 namespace melonDS
 {
 using Platform::Log;
@@ -69,27 +166,24 @@ CartCapture::CartCapture(std::string filename, void *userdata)
     : CartCommon(std::make_unique<u8[]>(0x8000), 0, 0, false, {0,0,0}, CartType::Capture, userdata)
 {
     char logFileName[128];
-    struct termios tty;
 
-    snprintf(logFileName, sizeof(logFileName), "ntrcard_%ld.csv", get_timestamp());
+    snprintf(logFileName, sizeof(logFileName), "ntrcard_%" PRIu64 ".csv", get_timestamp());
     logFile = fopen(logFileName, "w");
     if (logFile != nullptr)
         fprintf(logFile, "Type,Direction,Timestamp,Flags,C[0],C[1],C[2],C[3],C[4],C[5],C[6],C[7],Data\n");
 
-    fd = open(filename.c_str(), O_RDWR | O_NOCTTY);
-
-    tcgetattr(fd, &tty);
-
-    tty.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    tty.c_oflag &= ~(OPOST);
-    tty.c_cflag |= (CS8);
-    tty.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-
-    tcsetattr(fd, TCSAFLUSH, &tty);
+    fd = open_serial(filename.c_str());
 }
 
 CartCapture::~CartCapture()
 {
+#ifdef _WIN32
+    auto handle = _get_osfhandle(fd);
+#endif
+    close(fd);
+#ifdef _WIN32
+    CloseHandle((HANDLE)handle);
+#endif
 }
 
 void CartCapture::Reset()
@@ -179,7 +273,7 @@ int CartCapture::ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, const
         fd_read(fd, &tmp, 1);
 
     if (logFile != nullptr) {
-        fprintf(logFile, "ROM,Read,%ld,%08X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,",
+        fprintf(logFile, "ROM,Read,%" PRIu64 ",%08X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,",
                 get_timestamp(), romCnt, cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7]);
         for (u32 i = 0; i < len; i++) {
             fprintf(logFile, "%02X ", data[i]);
@@ -238,7 +332,7 @@ void CartCapture::ROMCommandFinish(const u8* cmd, u8* data, u32 len)
         fd_read(fd, &tmp, 1);
 
     if (logFile != nullptr) {
-        fprintf(logFile, "ROM,Write,%ld,%08X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,",
+        fprintf(logFile, "ROM,Write,%" PRIu64 ",%08X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,",
                 get_timestamp(), romCnt, cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7]);
         for (u32 i = 0; i < len; i++) {
             fprintf(logFile, "%02X ", data[i]);
@@ -259,7 +353,7 @@ u8 CartCapture::SPIWrite(u8 val, u32 pos, bool last)
     fd_read(fd, data, 2);
 
     if (logFile != nullptr) {
-        fprintf(logFile, "SPI,Exchange,%ld,%04X,%02X,%02X,,,,,,,\n",
+        fprintf(logFile, "SPI,Exchange,%" PRIu64 ",%04X,%02X,%02X,,,,,,,\n",
                 get_timestamp(), spiCnt, val, data[1]);
         fflush(logFile);
     }

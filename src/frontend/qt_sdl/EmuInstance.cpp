@@ -1862,7 +1862,7 @@ bool EmuInstance::loadROM(QStringList filepath, bool reset, QString& errorstr)
     for (int i = 0; i < filepath.count(); i++)
     {
         std::string filename = filepath.at(i).toStdString();
-        if (filename.find("/dev/tty") == 0)
+        if (filename.find("/dev/tty") == 0 || filename.find("\\\\.\\COM") == 0)
         {
             cart = std::make_unique<NDSCart::CartCapture>(filename, this);
             cartIsProxy = true;
