@@ -42,6 +42,7 @@ add_library(core STATIC
     NDSCart.cpp
     NDSCartCapture.cpp
     NDSCartR4.cpp
+    NDSCartGamesNMusic.cpp
     Platform.h
     ROMList.h
     ROMList.cpp

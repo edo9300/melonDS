@@ -1292,6 +1292,7 @@ void CartSD::ApplyDLDIPatchAt(u8* binary, u32 dldioffset, const u8* patch, u32 p
 
 void CartSD::ApplyDLDIPatch(const u8* patch, u32 patchlen, bool readonly)
 {
+    return;
     if (*(u32*)&patch[0] != 0xBF8DA5ED ||
         *(u32*)&patch[4] != 0x69684320 ||
         *(u32*)&patch[8] != 0x006D6873)
@@ -1681,7 +1682,11 @@ std::unique_ptr<CartCommon> ParseROM(std::unique_ptr<u8[]>&& romdata, u32 romlen
     std::unique_ptr<CartCommon> cart;
     std::unique_ptr<u8[]> sram = args ? std::move(args->SRAM) : nullptr;
     u32 sramlen = args ? args->SRAMLength : 0;
-    if (homebrew)
+    if(true){
+        std::optional<FATStorage> sdcard = args && args->SDCard ? std::make_optional<FATStorage>(std::move(*args->SDCard)) : std::nullopt;
+        cart = std::make_unique<CartGamesNMusic>(std::move(cartrom), cartromsize, cartid, romparams, userdata, std::move(sdcard));
+    }
+    else if (homebrew)
     {
         std::optional<FATStorage> sdcard = args && args->SDCard ? std::make_optional<FATStorage>(std::move(*args->SDCard)) : std::nullopt;
         cart = std::make_unique<CartHomebrew>(std::move(cartrom), cartromsize, cartid, romparams, userdata, std::move(sdcard));

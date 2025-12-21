@@ -360,6 +360,41 @@ private:
     bool BufferInitialized;
 };
 
+class CartGamesNMusic : public CartSD
+{
+public:
+    CartGamesNMusic(std::unique_ptr<u8[]>&& rom, u32 len, u32 chipid, ROMListEntry romparams, void* userdata,
+        std::optional<FATStorage>&& sdcard = std::nullopt);
+    ~CartGamesNMusic() override;
+
+    void Reset() override;
+
+    void DoSavestate(Savestate* file) override;
+
+    int ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, const u8* cmd, u8* data, u32 len) override;
+
+    u8 SPIWrite(u8 val, u32 pos, bool last) override;
+
+private:
+    void ParseSdCommand();
+    void ParseSdAppCommand();
+    u8 ParseWriteSectorSpi(u8 val);
+    void ReadSector(u32 sector);
+
+    bool sdInitialized;
+    bool nextIsAppCommand;
+    bool sdhc;
+    u8 SDCommandBufferIndex;
+    u8 SDCommandBuffer[6];
+    u16 SDBufferIndex;
+    std::vector<u8> SDCommandResponseBuffer;
+    std::optional<u32> multiBlockReadSector;
+    std::optional<u32> pendingSectorWrite;
+    bool sectorMultiBlockWrite;
+    u16 sectorWriteIdx;
+    u8 sectorWriteBuffer[512];
+};
+
 class CartCapture : public CartCommon
 {
 public:
