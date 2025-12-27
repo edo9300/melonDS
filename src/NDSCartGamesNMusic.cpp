@@ -79,9 +79,13 @@ CartGamesNMusic::~CartGamesNMusic()
 {
 }
 
+static int cmdTot = 0;
+
 void CartGamesNMusic::Reset()
 {
 	CartSD::Reset();
+	sdHost.Reset();
+	cmdTot = 0;
 	SDMode = false;
 }
 
@@ -103,10 +107,10 @@ int CartGamesNMusic::ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, c
 	// spi
 	case 0xF2: {
 		auto param2 = cmd[5];
-		if(param2 == 0){
-			SDMode = false;
-		} else {
-			SDMode = true;
+		auto wasSd = SDMode;
+		SDMode = param2 == 0xCC;
+		if(SDMode != wasSd){
+			sdHost.Reset();
 		}
 		return 0;
 	}
@@ -122,10 +126,19 @@ u8 CartGamesNMusic::SPIWrite(u8 val, u32 pos, bool last) {
 		return flashChip.HandleSpi(val, pos);
 }
 
+CartGamesNMusic::SDHost::SDHost(CartGamesNMusic* cart) : m_card(cart), resetted(true)
+{
+	nextIsAppCommand = false;
+	if(m_card->SD) {
+		sdhc = m_card->SD->GetSectorCount() > 8388608;
+	}
+}
+
 void CartGamesNMusic::SDHost::Reset()
 {
-	currentWorkFunction = nullptr;
-	nextIsAppCommand = false;
+	resetted = true;
+	/*currentWorkFunction = nullptr;
+	nextIsAppCommand = false;*/
 }
 
 std::function<u8(u8, u32)> CartGamesNMusic::SDHost::ParseSdCommand(const std::vector<u8>& commandBuffer)
@@ -160,6 +173,7 @@ std::function<u8(u8, u32)> CartGamesNMusic::SDHost::ParseSdCommand(const std::ve
 	}
 	// CMD16, set blocklen, do nothing
 	case 16: {
+		++cmdTot;
 		return makeFunctionReturningBytes({0x00});
 	}
 	// CMD17, read single block
@@ -269,7 +283,10 @@ std::function<u8(u8, u32)> CartGamesNMusic::SDHost::makeParseSdCommandFunction(s
 {
 	commandBuffer.reserve(6);
 	return [this, buffer = std::move(commandBuffer)](u8 val, u32 pos) mutable -> u8 {
-		buffer.push_back(val);
+		if(!buffer.empty() || val != 0xFF)
+		{
+			buffer.push_back(val);
+		}
 		if(buffer.size() == 6)
 		{
 			currentWorkFunction = ParseSdCommand(buffer);
@@ -359,22 +376,22 @@ void CartGamesNMusic::SDHost::ReadSector(u32 sector, std::vector<u8>& responseBu
 	m_card->SD->ReadSectors(sector, 1, &responseBuffer[1]);
 }
 
-CartGamesNMusic::SDHost::SDHost(CartGamesNMusic* cart) : m_card(cart)
-{
-	nextIsAppCommand = false;
-	//SDCommandResponseBuffer.reserve(1024);
-	if(m_card->SD) {
-		sdhc = m_card->SD->GetSectorCount() > 8388608;
-	}
-}
 u8 CartGamesNMusic::SDHost::HandleSpi(u8 val, u32 pos)
 {
 	if(!m_card->SD)
 		return 0xFF;
 
-	if(pos == 0)
+	/*if(cmdTot == 2)
+		Log(LogLevel::Error, "Handling spi: 0x%02X, %d\n", (int)val, (int)pos);*/
+	if(pos == 0 || resetted || !currentWorkFunction)
 	{
-		currentWorkFunction = makeParseSdCommandFunction({val});
+		resetted = false;
+		std::vector<u8> buff;
+		if(val != 0xFF)
+		{
+			buff.push_back(val);
+		}
+		currentWorkFunction = makeParseSdCommandFunction(std::move(buff));
 		return 0xFE;
 	}
 	else if(currentWorkFunction)

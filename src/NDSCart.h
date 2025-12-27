@@ -391,8 +391,8 @@ private:
     public:
         SDHost(CartGamesNMusic* cart);
         u8 HandleSpi(u8 val, u32 pos);
-    private:
         void Reset();
+    private:
         void ReadSector(u32 sector, std::vector<u8>& responseBuffer);
         std::function<u8(u8, u32)> ParseSdCommand(const std::vector<u8>& commandBuffer);
         std::function<u8(u8, u32)> ParseSdAppCommand(const std::vector<u8>& commandBuffer);
@@ -404,7 +404,7 @@ private:
         CartGamesNMusic* m_card;
         bool nextIsAppCommand;
         bool sdhc;
-        u16 SDBufferIndex;
+        bool resetted;
     };
 
     FlashChip flashChip;
