@@ -376,23 +376,40 @@ public:
     u8 SPIWrite(u8 val, u32 pos, bool last) override;
 
 private:
-    void ParseSdCommand();
-    void ParseSdAppCommand();
-    u8 ParseWriteSectorSpi(u8 val);
-    void ReadSector(u32 sector);
+    class FlashChip {
+    public:
+        FlashChip(const CartGamesNMusic* cart) : m_card(cart) {    }
+        u8 HandleSpi(u8 val, u32 pos);
+    private:
+        std::function<u8(u8, u32)> currentWorkFunction;
+        const CartGamesNMusic* m_card;
+        u32 currAddrLine{};
+        u32 currDataLine{};
+    };
 
-    bool sdInitialized;
-    bool nextIsAppCommand;
-    bool sdhc;
-    u8 SDCommandBufferIndex;
-    u8 SDCommandBuffer[6];
-    u16 SDBufferIndex;
-    std::vector<u8> SDCommandResponseBuffer;
-    std::optional<u32> multiBlockReadSector;
-    std::optional<u32> pendingSectorWrite;
-    bool sectorMultiBlockWrite;
-    u16 sectorWriteIdx;
-    u8 sectorWriteBuffer[512];
+    class SDHost {
+    public:
+        SDHost(CartGamesNMusic* cart);
+        u8 HandleSpi(u8 val, u32 pos);
+    private:
+        void Reset();
+        void ReadSector(u32 sector, std::vector<u8>& responseBuffer);
+        std::function<u8(u8, u32)> ParseSdCommand(const std::vector<u8>& commandBuffer);
+        std::function<u8(u8, u32)> ParseSdAppCommand(const std::vector<u8>& commandBuffer);
+        std::function<u8(u8, u32)> makeFunctionReturningBytes(std::vector<u8> bytes);
+        std::function<u8(u8, u32)> makeParseSdCommandFunction(std::vector<u8> commandBuffer);
+        std::function<u8(u8, u32)> makeWriteSectorFunction(u32 sector, bool isMulti);
+
+        std::function<u8(u8, u32)> currentWorkFunction;
+        CartGamesNMusic* m_card;
+        bool nextIsAppCommand;
+        bool sdhc;
+        u16 SDBufferIndex;
+    };
+
+    FlashChip flashChip;
+    SDHost sdHost;
+    bool SDMode;
 };
 
 class CartCapture : public CartCommon

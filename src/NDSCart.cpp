@@ -1292,7 +1292,6 @@ void CartSD::ApplyDLDIPatchAt(u8* binary, u32 dldioffset, const u8* patch, u32 p
 
 void CartSD::ApplyDLDIPatch(const u8* patch, u32 patchlen, bool readonly)
 {
-    return;
     if (*(u32*)&patch[0] != 0xBF8DA5ED ||
         *(u32*)&patch[4] != 0x69684320 ||
         *(u32*)&patch[8] != 0x006D6873)
@@ -1682,11 +1681,8 @@ std::unique_ptr<CartCommon> ParseROM(std::unique_ptr<u8[]>&& romdata, u32 romlen
     std::unique_ptr<CartCommon> cart;
     std::unique_ptr<u8[]> sram = args ? std::move(args->SRAM) : nullptr;
     u32 sramlen = args ? args->SRAMLength : 0;
-    if(true){
-        std::optional<FATStorage> sdcard = args && args->SDCard ? std::make_optional<FATStorage>(std::move(*args->SDCard)) : std::nullopt;
-        cart = std::make_unique<CartGamesNMusic>(std::move(cartrom), cartromsize, cartid, romparams, userdata, std::move(sdcard));
-    }
-    else if (homebrew)
+
+    if (homebrew)
     {
         std::optional<FATStorage> sdcard = args && args->SDCard ? std::make_optional<FATStorage>(std::move(*args->SDCard)) : std::nullopt;
         cart = std::make_unique<CartHomebrew>(std::move(cartrom), cartromsize, cartid, romparams, userdata, std::move(sdcard));
@@ -1695,6 +1691,12 @@ std::unique_ptr<CartCommon> ParseROM(std::unique_ptr<u8[]>&& romdata, u32 romlen
     {
         std::optional<FATStorage> sdcard = args && args->SDCard ? std::make_optional<FATStorage>(std::move(*args->SDCard)) : std::nullopt;
         cart = std::make_unique<CartR4>(std::move(cartrom), cartromsize, cartid, romparams, CartR4TypeR4, CartR4LanguageEnglish, userdata, std::move(sdcard));
+    }
+    else if((strncmp(gametitle, "MEDIAPLAYER", sizeof("MEDIAPLAYER") - 1) == 0 && gamecode == 0x414D5341)
+            || (strncmp(gametitle, "DAR4NDS", sizeof("DAR4NDS") - 1) == 0 && gamecode == 0x52415344))
+    {
+        std::optional<FATStorage> sdcard = args && args->SDCard ? std::make_optional<FATStorage>(std::move(*args->SDCard)) : std::nullopt;
+        cart = std::make_unique<CartGamesNMusic>(std::move(cartrom), cartromsize, cartid, romparams, userdata, std::move(sdcard));
     }
     else if (cartid & 0x08000000)
         cart = std::make_unique<CartRetailNAND>(std::move(cartrom), cartromsize, cartid, romparams, std::move(sram), sramlen, userdata);

@@ -27,19 +27,52 @@ using Platform::LogLevel;
 
 namespace NDSCart
 {
+u8 CartGamesNMusic::FlashChip::HandleSpi(u8 val, u32 pos){
+	if(pos == 0) {
+		currentWorkFunction = nullptr;
+		switch(val) {
+		// set addr line
+		case 0xE3: {
+			currentWorkFunction = [this](u8 val, u32 pos) -> u8 {
+				switch(pos){
+				case 1:
+					currAddrLine = (u32)val << 0x10;
+					break;
+				case 2:
+					currAddrLine |= (u32)val << 8;
+					break;
+				case 3:
+					currAddrLine |= (u32)val;
+					[[fallthrough]];
+				default:
+					currentWorkFunction = nullptr;
+				}
+				return 0xFF;
+			};
+			break;
+		}
+		// read bytes
+		case 0xE7: {
+			currentWorkFunction = [this](u8 val, u32 pos) -> u8 {
+				return m_card->GetROM()[(currAddrLine + (pos - 1)) % m_card->GetROMLength()];
+			};
+			break;
+		}
+		default:
+			Log(LogLevel::Error, "Unhandled flash command: 0x%02X\n", (int)val);
+			break;
+		}
+	} else if(currentWorkFunction) {
+		return currentWorkFunction(val, pos);
+	}
+	return 0;
+}
 
 CartGamesNMusic::CartGamesNMusic(std::unique_ptr<u8[]>&& rom, u32 len, u32 chipid, ROMListEntry romparams, void* userdata,
 			std::optional<FATStorage>&& sdcard)
-	: CartSD(std::move(rom), len, chipid, romparams, userdata, std::move(sdcard))
+	: CartSD(std::move(rom), len, chipid, romparams, userdata, std::move(sdcard)), flashChip(this), sdHost(this)
 {
-	SDCommandBufferIndex = 0;
-	sdInitialized = false;
-	nextIsAppCommand = false;
-	sectorMultiBlockWrite = true;
-	SDCommandResponseBuffer.reserve(1024);
-	if(SD) {
-		sdhc = SD->GetSectorCount() > 8388608;
-	}
+	SDMode = false;
 }
 
 CartGamesNMusic::~CartGamesNMusic()
@@ -49,13 +82,7 @@ CartGamesNMusic::~CartGamesNMusic()
 void CartGamesNMusic::Reset()
 {
 	CartSD::Reset();
-	SDCommandBufferIndex = 0;
-	sdInitialized = false;
-	nextIsAppCommand = false;
-	sectorMultiBlockWrite = true;
-	pendingSectorWrite = std::nullopt;
-	multiBlockReadSector = std::nullopt;
-	SDCommandResponseBuffer.clear();
+	SDMode = false;
 }
 
 void CartGamesNMusic::DoSavestate(Savestate* file)
@@ -77,12 +104,9 @@ int CartGamesNMusic::ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, c
 	case 0xF2: {
 		auto param2 = cmd[5];
 		if(param2 == 0){
-			sdInitialized = SD.has_value();
+			SDMode = false;
 		} else {
-			SDCommandBufferIndex = 0;
-			SDCommandResponseBuffer.clear();
-			pendingSectorWrite = std::nullopt;
-			multiBlockReadSector = std::nullopt;
+			SDMode = true;
 		}
 		return 0;
 	}
@@ -91,52 +115,68 @@ int CartGamesNMusic::ROMCommandStart(NDS& nds, NDSCart::NDSCartSlot& cartslot, c
 	}
 }
 
-void CartGamesNMusic::ParseSdCommand()
+u8 CartGamesNMusic::SPIWrite(u8 val, u32 pos, bool last) {
+	if(SDMode)
+		return sdHost.HandleSpi(val, pos);
+	else
+		return flashChip.HandleSpi(val, pos);
+}
+
+void CartGamesNMusic::SDHost::Reset()
 {
-	SDCommandResponseBuffer.clear();
+	currentWorkFunction = nullptr;
+	nextIsAppCommand = false;
+}
+
+std::function<u8(u8, u32)> CartGamesNMusic::SDHost::ParseSdCommand(const std::vector<u8>& commandBuffer)
+{
+	const auto* SDCommandBuffer = &commandBuffer.front();
 	if(nextIsAppCommand) {
 		nextIsAppCommand = false;
-		return ParseSdAppCommand();
+		return ParseSdAppCommand(commandBuffer);
 	}
 	auto command = *SDCommandBuffer & ~0x40;
-	switch(command){
+	if(command != 17)
+		Log(LogLevel::Debug, "SD command: %d\n", command);
+	switch(command) {
 	// CMD0
 	case 0: {
-		SDCommandResponseBuffer = {0x01};
-		break;
+		return makeFunctionReturningBytes({0x01});
 	}
 	// CMD8
 	case 8: {
 		if(sdhc) {
-			SDCommandResponseBuffer = {0x01, 0x00, 0x00, 0x01, 0xAA};
+			return makeFunctionReturningBytes({0x01, 0x00, 0x00, 0x01, 0xAA});
+		} else {
+			return nullptr;
 		}
-		break;
 	}
 	// CMD12, stop transmission
 	case 12: {
+		// A bit "off spec" (maybe), we are aborting the transmission the moment we get a non 0xFF
+		// byte, so this is effectively a noop
 		// technically only returns 1 byte, but we add extra ones to simulate delays
-		SDCommandResponseBuffer = {0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-		multiBlockReadSector = std::nullopt;
-		break;
+		return makeFunctionReturningBytes({0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF});
 	}
 	// CMD16, set blocklen, do nothing
 	case 16: {
-		SDCommandResponseBuffer.resize(1);
-		break;
+		return makeFunctionReturningBytes({0x00});
 	}
 	// CMD17, read single block
 	case 17: {
 		auto sector = (unsigned)SDCommandBuffer[4] | (unsigned)SDCommandBuffer[3] << 8
 					| (unsigned)SDCommandBuffer[2] << 16 | (unsigned)SDCommandBuffer[1] << 24;
-		if(!sdhc){
+		if(!sdhc)
+		{
 			sector >>= 9;
 		}
 
-		SDCommandResponseBuffer.resize(512 + 2 + 2);
-		SDCommandResponseBuffer[0] = 0x00;
-		SDCommandResponseBuffer[1] = 0xfe;
-		SD->ReadSectors(sector, 1, &SDCommandResponseBuffer[2]);
-		break;
+		std::vector<u8> responseBuffer;
+		responseBuffer.resize(512 + 2 + 2);
+		responseBuffer[0] = 0x00;
+		responseBuffer[1] = 0xfe;
+		m_card->SD->ReadSectors(sector, 1, &responseBuffer[2]);
+		return makeFunctionReturningBytes(std::move(responseBuffer));
 	}
 	// CMD18, read multiple block
 	case 18: {
@@ -147,157 +187,204 @@ void CartGamesNMusic::ParseSdCommand()
 		}
 
 		// technically only returns 1 byte, but we add an extra one to simulate delays
-		SDCommandResponseBuffer = {0x00, 0xFF};
-		multiBlockReadSector = startSector;
-		break;
+		std::vector<u8> responseBuffer{0x00, 0xFF};
+		responseBuffer.reserve(1 + 512 + 2);
+		return [this, sector = startSector, buffer = responseBuffer](u8 val, u32 pos) mutable -> u8 {
+			if(buffer.empty())
+			{
+				if(val != 0xFF)
+				{
+					currentWorkFunction = makeParseSdCommandFunction({val});
+					return 0xFE;
+				}
+				ReadSector(sector, buffer);
+				++sector;
+			}
+			auto begin = buffer.begin();
+			auto res = *begin;
+			buffer.erase(begin);
+			return res;
+		};
 	}
 	// CMD24, write single block
-	case 24: {
-		auto sector = (unsigned)SDCommandBuffer[4] | (unsigned)SDCommandBuffer[3] << 8
-					| (unsigned)SDCommandBuffer[2] << 16 | (unsigned)SDCommandBuffer[1] << 24;
-		if(!sdhc){
-			sector >>= 9;
-		}
-
-		SDCommandResponseBuffer = {0x00};
-		pendingSectorWrite = sector;
-		sectorMultiBlockWrite = false;
-		sectorWriteIdx = 0;
-		break;
-	}
+	case 24:
 	// CMD25, write multiple block
 	case 25: {
-		auto startSector = (unsigned)SDCommandBuffer[4] | (unsigned)SDCommandBuffer[3] << 8
+		auto sector = (unsigned)SDCommandBuffer[4] | (unsigned)SDCommandBuffer[3] << 8
 					| (unsigned)SDCommandBuffer[2] << 16 | (unsigned)SDCommandBuffer[1] << 24;
-		if(!sdhc){
-			startSector >>= 9;
+		if(!sdhc)
+		{
+			sector >>= 9;
 		}
-
-		SDCommandResponseBuffer = {0x00};
-		pendingSectorWrite = startSector;
-		sectorMultiBlockWrite = true;
-		sectorWriteIdx = 0;
-		break;
+		return makeWriteSectorFunction(sector, command == 25);
 	}
 	// CMD55, application command
 	case 55: {
-		SDCommandResponseBuffer = {0x00};
 		nextIsAppCommand = true;
-		break;
+		return makeFunctionReturningBytes({0x00});
 	}
 	// CMD58
 	case 58: {
-		SDCommandResponseBuffer.resize(5);
-		SDCommandResponseBuffer[1] = sdhc ? 0x40 : 0x00;
-		break;
+		return makeFunctionReturningBytes({0x00, static_cast<u8>(sdhc ? 0x40 : 0x00), 0x00, 0x00, 0x00});
 	}
 	default: {
 		Log(LogLevel::Warn, "Unknown SD command: %d\n", command);
-		return;
+		return nullptr;
 	}
 	}
-	Log(LogLevel::Debug, "SD command: %d\n", command);
 }
 
-void CartGamesNMusic::ParseSdAppCommand(){
+std::function<u8(u8, u32)> CartGamesNMusic::SDHost::ParseSdAppCommand(const std::vector<u8>& commandBuffer)
+{
+	const auto* SDCommandBuffer = &commandBuffer.front();
 	auto acmd = *SDCommandBuffer & ~0x40;
+	Log(LogLevel::Debug, "APP command: %d\n", acmd);
 	switch(acmd) {
 	// ACMD41
 	case 41: {
-		SDCommandResponseBuffer = {0x00};
-		break;
+		return makeFunctionReturningBytes({0x00});
 	}
 	default: {
 		Log(LogLevel::Warn, "Unknown APP command: %d\n", acmd);
-		return;
+		return nullptr;
 	}
 	}
-	Log(LogLevel::Debug, "APP command: %d\n", acmd);
 }
 
-u8 CartGamesNMusic::ParseWriteSectorSpi(u8 val) {
-	// wait start token 0xFE
-	if(sectorWriteIdx == 0) {
-		if(sectorMultiBlockWrite){
-			if(val == 0xFC) {
-				++sectorWriteIdx;
-			} else if(val == 0xFD) {
-				// stop token received
-				pendingSectorWrite = std::nullopt;
-				sectorMultiBlockWrite = false;
-				return 0xFF;
-			}
-		} else {
-			// in single block start token is 0xFE
-			if(val == 0xFE) {
-				++sectorWriteIdx;
-			}
+std::function<u8(u8, u32)> CartGamesNMusic::SDHost::makeFunctionReturningBytes(std::vector<u8> commandBuffer)
+{
+	return [this, buffer=std::move(commandBuffer)](u8, u32) mutable -> u8 {
+		auto begin = buffer.begin();
+		auto res = *begin;
+		buffer.erase(begin);
+		if(buffer.empty())
+		{
+			currentWorkFunction = nullptr;
 		}
-		return 0xFF;
-	} else if (sectorWriteIdx < 512 + 1) {
-		// read 512 bytes
-		sectorWriteBuffer[sectorWriteIdx - 1] = val;
-		++sectorWriteIdx;
-	} else if(sectorWriteIdx < 512 + 1 + 2) {
-		// drop 2 bytes crc
-		++sectorWriteIdx;
-	} else if(sectorWriteIdx < 512 + 1 + 2 + 1) {
-		++sectorWriteIdx;
-		if(SD->WriteSectors(*pendingSectorWrite, 1, sectorWriteBuffer) == 0)
-			return 0;
-		// SD ok
-		return 0x05;
-	} else {
-		if(sectorMultiBlockWrite){
-			sectorWriteIdx = 0;
-			pendingSectorWrite = pendingSectorWrite.value() + 1;
-		} else {
-			pendingSectorWrite = std::nullopt;
-		}
-		// respond with 0x00 to signal write successful
-		return 0x01;
-	}
-	return 0xFF;
+		return res;
+	};
 }
 
-void CartGamesNMusic::ReadSector(u32 sector) {
-	SDCommandResponseBuffer.resize(1 + 512 + 2);
-	SDCommandResponseBuffer[0] = 0xfe;
-	SD->ReadSectors(sector, 1, &SDCommandResponseBuffer[1]);
-}
-
-u8 CartGamesNMusic::SPIWrite(u8 val, u32 pos, bool last) {
-	if(!sdInitialized)
-		return 0xFF;
-
-	if(!SDCommandResponseBuffer.empty()) {
-		auto ret = SDCommandResponseBuffer.front();
-		SDCommandResponseBuffer.erase(SDCommandResponseBuffer.begin());
-		return ret;
-	}
-
-	if(multiBlockReadSector.has_value()) {
-		if(val == 0xFF) {
-			auto sec = multiBlockReadSector.value();
-			ReadSector(sec);
-			multiBlockReadSector = sec + 1;
-			return 0xFF;
-		}
-		multiBlockReadSector = std::nullopt;
-	} else if(pendingSectorWrite) {
-		return ParseWriteSectorSpi(val);
-	}
-
-	if(SDCommandBufferIndex != 0 || val != 0xFF) {
-		SDCommandBuffer[SDCommandBufferIndex] = val;
-		++SDCommandBufferIndex;
-		if(SDCommandBufferIndex == 6){
-			ParseSdCommand();
-			SDCommandBufferIndex = 0;
+std::function<u8(u8, u32)> CartGamesNMusic::SDHost::makeParseSdCommandFunction(std::vector<u8> commandBuffer)
+{
+	commandBuffer.reserve(6);
+	return [this, buffer = std::move(commandBuffer)](u8 val, u32 pos) mutable -> u8 {
+		buffer.push_back(val);
+		if(buffer.size() == 6)
+		{
+			currentWorkFunction = ParseSdCommand(buffer);
 		}
 		return 0xFE;
+	};
+}
+
+std::function<u8(u8, u32)> CartGamesNMusic::SDHost::makeWriteSectorFunction(u32 sector, bool isMulti)
+{
+	static constexpr auto SINGLE_WRITE_START_TOKEN = 0xFE;
+	static constexpr auto MULTI_WRITE_START_TOKEN = 0xFC;
+	static constexpr auto MULTI_WRITE_STOP_TOKEN = 0xFD;
+
+	return [=](u8 val, u32 pos) mutable -> u8 {
+		std::vector<u8> writeBuffer;
+		u16 sectorWriteIdx = 0;
+		writeBuffer.reserve(512);
+		currentWorkFunction =
+				[this, buffer = std::move(writeBuffer), sectorWriteIdx, isMulti, currentWriteSector = sector](u8 val, u32 pos) mutable -> u8 {
+			// wait start token
+			if(sectorWriteIdx == 0)
+			{
+				if(isMulti)
+				{
+					if(val == MULTI_WRITE_START_TOKEN)
+					{
+						++sectorWriteIdx;
+					}
+					else if(val == MULTI_WRITE_STOP_TOKEN)
+					{
+						currentWorkFunction = nullptr;
+						return 0xFF;
+					}
+				}
+				else
+				{
+					// in single block start token is 0xFE
+					if(val == SINGLE_WRITE_START_TOKEN)
+					{
+						++sectorWriteIdx;
+					}
+				}
+				buffer.clear();
+				return 0xFF;
+			}
+			if (sectorWriteIdx < 512 + 1)
+			{
+				// read 512 bytes
+				buffer.push_back(val);
+				++sectorWriteIdx;
+				return 0xFF;
+			}
+			if(sectorWriteIdx < 512 + 1 + 2)
+			{
+				// drop 2 bytes crc
+				++sectorWriteIdx;
+				return 0xFF;
+			}
+			if(sectorWriteIdx < 512 + 1 + 2 + 1)
+			{
+				++sectorWriteIdx;
+				if(m_card->SD->WriteSectors(currentWriteSector, 1, buffer.data()) == 0)
+					return 0x00;
+				// SD ok
+				return 0x05;
+			}
+			if(isMulti)
+			{
+				sectorWriteIdx = 0;
+				++currentWriteSector;
+			}
+			else
+			{
+				currentWorkFunction = nullptr;
+			}
+			// respond with 0x01 to signal write successful
+			return 0x01;
+		};
+		return 0x00;
+	};
+}
+
+void CartGamesNMusic::SDHost::ReadSector(u32 sector, std::vector<u8>& responseBuffer) {
+	responseBuffer.resize(1 + 512 + 2);
+	responseBuffer[0] = 0xfe;
+	m_card->SD->ReadSectors(sector, 1, &responseBuffer[1]);
+}
+
+CartGamesNMusic::SDHost::SDHost(CartGamesNMusic* cart) : m_card(cart)
+{
+	nextIsAppCommand = false;
+	//SDCommandResponseBuffer.reserve(1024);
+	if(m_card->SD) {
+		sdhc = m_card->SD->GetSectorCount() > 8388608;
 	}
-	return 0xFF;
+}
+u8 CartGamesNMusic::SDHost::HandleSpi(u8 val, u32 pos)
+{
+	if(!m_card->SD)
+		return 0xFF;
+
+	if(pos == 0)
+	{
+		currentWorkFunction = makeParseSdCommandFunction({val});
+		return 0xFE;
+	}
+	else if(currentWorkFunction)
+	{
+		return currentWorkFunction(val, pos);
+	}
+	else
+	{
+		return 0xFF;
+	}
 }
 
 }
