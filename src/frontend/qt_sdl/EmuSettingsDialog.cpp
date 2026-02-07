@@ -112,6 +112,7 @@ EmuSettingsDialog::EmuSettingsDialog(QWidget* parent) : QDialog(parent), ui(new 
     const int imgsizes[] = {256, 512, 1024, 2048, 4096, 0};
 
     ui->cbxDLDISize->addItem("Auto");
+	ui->cbxDLDI2Size->addItem("Auto");
     ui->cbxDSiSDSize->addItem("Auto");
 
     for (int i = 0; imgsizes[i] != 0; i++)
@@ -129,6 +130,7 @@ EmuSettingsDialog::EmuSettingsDialog(QWidget* parent) : QDialog(parent), ui(new 
         }
 
         ui->cbxDLDISize->addItem(sizelbl);
+		ui->cbxDLDI2Size->addItem(sizelbl);
         ui->cbxDSiSDSize->addItem(sizelbl);
     }
 
@@ -139,6 +141,14 @@ EmuSettingsDialog::EmuSettingsDialog(QWidget* parent) : QDialog(parent), ui(new 
     ui->cbDLDIFolder->setChecked(cfg.GetBool("DLDI.FolderSync"));
     ui->txtDLDIFolder->setText(cfg.GetQString("DLDI.FolderPath"));
     on_cbDLDIEnable_toggled();
+
+	ui->cbDLDI2Enable->setChecked(cfg.GetBool("DLDI2.Enable"));
+	ui->txtDLDI2SDPath->setText(cfg.GetQString("DLDI2.ImagePath"));
+	ui->cbxDLDI2Size->setCurrentIndex(cfg.GetInt("DLDI2.ImageSize"));
+	ui->cbDLDI2ReadOnly->setChecked(cfg.GetBool("DLDI2.ReadOnly"));
+	ui->cbDLDI2Folder->setChecked(cfg.GetBool("DLDI2.FolderSync"));
+	ui->txtDLDI2Folder->setText(cfg.GetQString("DLDI2.FolderPath"));
+	on_cbDLDI2Enable_toggled();
 
     ui->cbDSiFullBIOSBoot->setChecked(cfg.GetBool("DSi.FullBIOSBoot"));
 
@@ -268,6 +278,13 @@ void EmuSettingsDialog::done(int r)
             cfg.SetBool("DLDI.ReadOnly", ui->cbDLDIReadOnly->isChecked());
             cfg.SetBool("DLDI.FolderSync", ui->cbDLDIFolder->isChecked());
             cfg.SetQString("DLDI.FolderPath", ui->txtDLDIFolder->text());
+
+			cfg.SetBool("DLDI2.Enable", ui->cbDLDI2Enable->isChecked());
+			cfg.SetQString("DLDI2.ImagePath", ui->txtDLDI2SDPath->text());
+			cfg.SetInt("DLDI2.ImageSize", ui->cbxDLDI2Size->currentIndex());
+			cfg.SetBool("DLDI2.ReadOnly", ui->cbDLDI2ReadOnly->isChecked());
+			cfg.SetBool("DLDI2.FolderSync", ui->cbDLDI2Folder->isChecked());
+			cfg.SetQString("DLDI2.FolderPath", ui->txtDLDI2Folder->text());
 
             cfg.SetQString("DSi.BIOS9Path", ui->txtDSiBIOS9Path->text());
             cfg.SetQString("DSi.BIOS7Path", ui->txtDSiBIOS7Path->text());
@@ -437,6 +454,58 @@ void EmuSettingsDialog::on_btnDLDIFolderBrowse_clicked()
     if (dir.isEmpty()) return;
 
     ui->txtDLDIFolder->setText(dir);
+}
+
+void EmuSettingsDialog::on_cbDLDI2Enable_toggled()
+{
+	bool disabled = !ui->cbDLDI2Enable->isChecked();
+	ui->txtDLDI2SDPath->setDisabled(disabled);
+	ui->btnDLDI2SDBrowse->setDisabled(disabled);
+	ui->cbxDLDI2Size->setDisabled(disabled);
+	ui->cbDLDI2ReadOnly->setDisabled(disabled);
+	ui->cbDLDI2Folder->setDisabled(disabled);
+
+	if (!disabled) disabled = !ui->cbDLDI2Folder->isChecked();
+	ui->txtDLDI2Folder->setDisabled(disabled);
+	ui->btnDLDI2FolderBrowse->setDisabled(disabled);
+}
+
+void EmuSettingsDialog::on_btnDLDI2SDBrowse_clicked()
+{
+	QString file = QFileDialog::getOpenFileName(this,
+												"Select SLOT-2 DLDI SD image...",
+												lastBIOSFolder,
+												"Image files (*.bin *.rom *.img *.dmg);;Any file (*.*)");
+
+	if (file.isEmpty()) return;
+
+	if (!Platform::CheckFileWritable(file.toStdString()))
+	{
+		QMessageBox::critical(this, "melonDS", "Unable to write to SLOT-2 DLDI SD image.\nPlease check file/folder write permissions.");
+		return;
+	}
+
+	updateLastBIOSFolder(file);
+
+	ui->txtDLDI2SDPath->setText(file);
+}
+
+void EmuSettingsDialog::on_cbDLDI2Folder_toggled()
+{
+	bool disabled = !ui->cbDLDI2Folder->isChecked();
+	ui->txtDLDI2Folder->setDisabled(disabled);
+	ui->btnDLDI2FolderBrowse->setDisabled(disabled);
+}
+
+void EmuSettingsDialog::on_btnDLDI2FolderBrowse_clicked()
+{
+	QString dir = QFileDialog::getExistingDirectory(this,
+													 "Select SLOT-2 DLDI SD folder...",
+													 lastBIOSFolder);
+
+	if (dir.isEmpty()) return;
+
+	ui->txtDLDI2Folder->setText(dir);
 }
 
 void EmuSettingsDialog::on_btnDSiFirmwareBrowse_clicked()

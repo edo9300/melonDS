@@ -20,6 +20,8 @@
 #define GBACART_H
 
 #include <memory>
+#include <optional>
+#include "FATStorage.h"
 #include "types.h"
 #include "Savestate.h"
 
@@ -33,6 +35,7 @@ enum CartType
     GameSolarSensor = 0x102,
     RAMExpansion = 0x201,
     RumblePak = 0x202,
+	SupercardCF = 0x203,
 };
 
 // CartCommon -- base code shared by all cart types
@@ -192,6 +195,24 @@ private:
     u16 RAMEnable = 0;
 };
 
+// CartRAMExpansion -- RAM expansion cart (DS browser, ...)
+class CartSupercardCf : public CartCommon
+{
+public:
+	CartSupercardCf(std::optional<FATStorage> sdCard);
+	~CartSupercardCf() override;
+
+	void Reset() override;
+
+	void DoSavestate(Savestate* file) override;
+
+	u16 ROMRead(u32 addr) const override;
+	void ROMWrite(u32 addr, u16 val) override;
+
+private:
+	std::optional<FATStorage> SD {};
+};
+
 // CartRumblePak -- DS Rumble Pak (used in various NDS games)
 class CartRumblePak : public CartCommon
 {
@@ -307,7 +328,7 @@ std::unique_ptr<CartCommon> ParseROM(const u8* romdata, u32 romlen, const u8* sr
 /// or \c nullptr if there was an error.
 std::unique_ptr<CartCommon> ParseROM(std::unique_ptr<u8[]>&& romdata, u32 romlen, std::unique_ptr<u8[]>&& sramdata, u32 sramlen, void* userdata = nullptr);
 
-std::unique_ptr<CartCommon> LoadAddon(int type, void* userdata);
+std::unique_ptr<CartCommon> LoadAddon(int type, void* userdata, std::optional<FATStorageArgs> SDCard = std::nullopt);
 
 }
 

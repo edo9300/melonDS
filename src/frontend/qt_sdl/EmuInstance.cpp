@@ -1136,8 +1136,8 @@ constexpr u64 imgsizes[] = {0, MB(256), MB(512), MB(1024), MB(2048), MB(4096)};
 
 std::optional<FATStorageArgs> EmuInstance::getSDCardArgs(const string& key) noexcept
 {
-    // key = DSi.SD or DLDI
-    Config::Table sdopt = globalCfg.GetTable(key);
+	// key = DSi.SD, DLDI or DLDI2
+	Config::Table sdopt = globalCfg.GetTable(key);
 
     if (!sdopt.GetBool("Enable"))
         return std::nullopt;
@@ -1922,7 +1922,7 @@ bool EmuInstance::loadROM(QStringList filepath, bool reset, QString& errorstr)
             // Don't load the SD card itself yet, because we don't know if
             // the ROM is homebrew or not.
             // So this is the card we *would* load if the ROM were homebrew.
-            .SDCard = getSDCardArgs("DLDI"),
+			.SDCard = getSDCardArgs("DLDI"),
             .SRAM = std::move(savedata),
             .SRAMLength = savelen,
     };
@@ -2109,7 +2109,7 @@ void EmuInstance::loadGBAAddon(int type, QString& errorstr)
 {
     if (consoleType == 1) return;
 
-    auto cart = GBACart::LoadAddon(type, this);
+	auto cart = GBACart::LoadAddon(type, this, getSDCardArgs("DLDI2"));
     if (!cart)
     {
         errorstr = "Failed to load the GBA addon.";
@@ -2165,7 +2165,9 @@ QString EmuInstance::gbaAddonName(int addon)
     case GBAAddon_RumblePak:
         return "Rumble Pak";
     case GBAAddon_RAMExpansion:
-        return "Memory expansion";
+		return "Memory expansion";
+	case GBAAddon_SupercardCF:
+		return "SuperCard CF";
     }
 
     return "???";

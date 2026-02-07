@@ -115,6 +115,7 @@ DefaultList<bool> DefaultBools =
 DefaultList<std::string> DefaultStrings =
 {
     {"DLDI.ImagePath",                  "dldi.bin"},
+	{"DLDI2.ImagePath",                 "dldi2.bin"},
     {"DSi.SD.ImagePath",                "dsisd.bin"},
     {"Instance*.Firmware.Username",     "melonDS"}
 };
@@ -242,6 +243,13 @@ LegacyEntry LegacyFile[] =
     {"DLDIReadOnly", 1, "DLDI.ReadOnly", false},
     {"DLDIFolderSync", 1, "DLDI.FolderSync", false},
     {"DLDIFolderPath", 2, "DLDI.FolderPath", false},
+
+	{"DLDI2Enable", 1, "DLDI2.Enable", false},
+	{"DLDI2SDPath", 2, "DLDI2.ImagePath", false},
+	{"DLDI2Size", 0, "DLDI2.ImageSize", false},
+	{"DLDI2ReadOnly", 1, "DLDI2.ReadOnly", false},
+	{"DLDI2FolderSync", 1, "DLDI2.FolderSync", false},
+	{"DLDI2FolderPath", 2, "DLDI2.FolderPath", false},
 
     {"DSiSDEnable", 1, "DSi.SD.Enable", false},
     {"DSiSDPath", 2, "DSi.SD.ImagePath", false},

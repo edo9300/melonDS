@@ -819,7 +819,7 @@ std::unique_ptr<CartCommon> ParseROM(std::unique_ptr<u8[]>&& romdata, u32 romlen
     if (solarsensor)
         cart = std::make_unique<CartGameSolarSensor>(std::move(cartrom), cartromsize, std::move(sramdata), sramlen, userdata);
     else
-        cart = std::make_unique<CartGame>(std::move(cartrom), cartromsize, std::move(sramdata), sramlen, userdata);
+		cart = std::make_unique<CartGame>(std::move(cartrom), cartromsize, std::move(sramdata), sramlen, userdata);
 
     cart->Reset();
 
@@ -832,7 +832,7 @@ std::unique_ptr<CartCommon> ParseROM(std::unique_ptr<u8[]>&& romdata, u32 romlen
     return cart;
 }
 
-std::unique_ptr<CartCommon> LoadAddon(int type, void* userdata)
+std::unique_ptr<CartCommon> LoadAddon(int type, void* userdata, std::optional<FATStorageArgs> SDCard)
 {
     std::unique_ptr<CartCommon> cart;
     switch (type)
@@ -843,6 +843,13 @@ std::unique_ptr<CartCommon> LoadAddon(int type, void* userdata)
     case GBAAddon_RumblePak:
         cart = std::make_unique<CartRumblePak>(userdata);
         break;
+	case GBAAddon_SupercardCF:
+	{
+		std::optional<FATStorage> sdcard = SDCard ? std::make_optional<FATStorage>(std::move(*SDCard)) : std::nullopt;
+
+		cart = std::make_unique<CartSupercardCf>(std::move(sdcard));
+		break;
+	}
 
     default:
         Log(LogLevel::Warn, "GBACart: !! invalid addon type %d\n", type);
@@ -924,6 +931,160 @@ void GBACartSlot::SRAMWrite(u32 addr, u8 val) noexcept
     if (Cart) Cart->SRAMWrite(addr, val);
 }
 
+// CF Card status
+#define CF_STS_INSERTED		0x50
+#define CF_STS_REMOVED		0x00
+#define CF_STS_READY		0x58
+
+#define CF_STS_DRQ			0x08
+#define CF_STS_BUSY			0x80
+
+// CF Card commands
+#define CF_CMD_LBA			0xE0
+#define CF_CMD_READ			0x20
+#define CF_CMD_WRITE		0x30
+
+static u8 lba1 = 0;
+static u8 lba2 = 0;
+static u8 lba3 = 0;
+static u8 lba4 = 0;
+static u16 data = 0;
+static u16 sectorCount = 0;
+static u8 status = CF_STS_INSERTED;
+static u8 cmd = 0;
+static u8 error = 0;
+static bool ongoingOperation = false;
+static std::vector<u16> sectorBuff;
+static u32 readingSector = 0;
+
+CartSupercardCf::CartSupercardCf(std::optional<FATStorage> sdCard) : CartCommon(SupercardCF), SD(std::move(sdCard))
+{
+	sectorBuff.reserve(512/2);
+	status = CF_STS_INSERTED;
+}
+
+CartSupercardCf::~CartSupercardCf() = default;
+
+void CartSupercardCf::Reset()
+{
+}
+
+void CartSupercardCf::DoSavestate(Savestate* file)
+{
+	CartCommon::DoSavestate(file);
+}
+
+u16 CartSupercardCf::ROMRead(u32 addr) const
+{
+	addr &= ~0x0FFFF;
+	//Log(LogLevel::Error, "Rom read: 0x%08X\n", addr);
+
+	switch(addr) {
+	case 0x09060000:
+		return lba1;
+	case 0x09080000:
+		return lba2;
+	case 0x090A0000:
+		return lba3;
+	case 0x090C0000:
+		return lba4;
+	case 0x09000000:
+	{
+		if(cmd == CF_CMD_READ)
+		{
+			if(sectorBuff.empty())
+			{
+				if(sectorCount == 0)
+				{
+					lba1 = readingSector & 0xFF;
+					lba2 = (readingSector >> 8) & 0xFF;
+					lba3 = (readingSector >> 16) & 0xFF;
+					lba4 = ((readingSector >> 24) & 0x0F) | CF_CMD_LBA;
+					cmd = 0;
+					break;
+				}
+				--sectorCount;
+				if(sectorCount == 0)
+				{
+					lba1 = readingSector & 0xFF;
+					lba2 = (readingSector >> 8) & 0xFF;
+					lba3 = (readingSector >> 16) & 0xFF;
+					lba4 = ((readingSector >> 24) & 0x0F) | CF_CMD_LBA;
+				}
+				sectorBuff.resize(512/2);
+				SD->ReadSectors(readingSector, 1, (u8*)sectorBuff.data());
+				++readingSector;
+			}
+			auto val = sectorBuff.front();
+			sectorBuff.erase(sectorBuff.begin());
+			return val;
+		}
+		break;
+	}
+	case 0x09040000:
+		return sectorCount;
+	case 0x098C0000:
+		return status;
+	case 0x090E0000:
+		return status;
+	case 0x09020000:
+		return error;
+	}
+
+	return 0xFFFF;
+}
+
+void CartSupercardCf::ROMWrite(u32 addr, u16 val)
+{
+	if(addr == 0x09FFFFFE) {
+		Log(LogLevel::Error, "Mode register written\n");
+		return;
+	}
+	addr &= ~0x0FFFF;
+	//Log(LogLevel::Error, "Rom write: 0x%08X, 0x%02X\n", addr, val);
+
+	switch(addr) {
+	case 0x09060000:
+		lba1 = val;
+		break;
+	case 0x09080000:
+		lba2 = val;
+		break;
+	case 0x090A0000:
+		lba3 = val;
+		break;
+	case 0x090C0000:
+		lba4 = val;
+		break;
+	case 0x09000000:
+		data = val;
+		break;
+	case 0x09040000:
+		Log(LogLevel::Error, "Setting sector count: %d\n", val);
+		if(val == 0)
+			sectorCount = 256;
+		else
+			sectorCount = val;
+		break;
+	case 0x098C0000:
+		status = val;
+		break;
+	case 0x090E0000:
+	{
+		cmd = val;
+		status = CF_STS_READY;
+		ongoingOperation = true;
+		readingSector = (u32)lba1 | (u32)(lba2 << 8) | (u32)(lba3 << 16) | (u32)((lba4 & 0x0F) << 24);
+		Log(LogLevel::Error, "Read command sent, sector: %d, sector count: %d\n", readingSector, sectorCount);
+		//sectorBuff.resize(512/2);
+		/*SD->ReadSectors(readingSector, 1, (u8*)sectorBuff.data());
+		--sectorCount;*/
+	}
+	case 0x09020000:
+		error = val;
+		break;
+	}
+}
 }
 
 }

@@ -66,6 +66,11 @@ private slots:
     void on_cbDLDIFolder_toggled();
     void on_btnDLDIFolderBrowse_clicked();
 
+	void on_cbDLDI2Enable_toggled();
+	void on_btnDLDI2SDBrowse_clicked();
+	void on_cbDLDI2Folder_toggled();
+	void on_btnDLDI2FolderBrowse_clicked();
+
     void on_btnDSiBIOS9Browse_clicked();
     void on_btnDSiBIOS7Browse_clicked();
     void on_btnDSiFirmwareBrowse_clicked();
