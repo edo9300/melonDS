@@ -147,9 +147,19 @@ void DSi::Reset()
     crc_full[0] = CRC32(ARM9iBIOS.data(), 0x10000);
     crc_full[1] = CRC32(ARM7iBIOS.data(), 0x10000);
 
-    bool bios9full = true; //(crc_low[0] != ARM9iBIOSLowCRC32) || (crc_full[0] == ARM9iBIOSCRC32);
-    bool bios7full = true; //(crc_low[1] != ARM7iBIOSLowCRC32) || (crc_full[1] == ARM7iBIOSCRC32);
+    bool bios9full = (crc_low[0] != ARM9iBIOSLowCRC32) || (crc_full[0] == ARM9iBIOSCRC32);
+    bool bios7full = (crc_low[1] != ARM7iBIOSLowCRC32) || (crc_full[1] == ARM7iBIOSCRC32 || crc_full[1] == ARM7iBIOSCRC32GcdBoot);
     FullBIOSBoot = bios9full && bios7full;
+	if(bios7full){
+		// nops out the lid+keys check to trigger gcdboot
+		// beq
+		ARM7iBIOS[0x871A] = 0x00;
+		ARM7iBIOS[0x871B] = 0x00;
+
+		// bne
+		ARM7iBIOS[0x8728] = 0x00;
+		ARM7iBIOS[0x8729] = 0x00;
+	}
     Log(LogLevel::Debug, "DSi: full BIOS boot = %d\n", FullBIOSBoot);
 
     //ARM9.CP15Write(0x910, 0x0D00000A);

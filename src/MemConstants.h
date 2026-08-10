@@ -42,6 +42,7 @@ constexpr u32 ARM9iBIOSLowCRC32 = 0x11E7C1EA;
 
 // CRC's for the full BIOS
 constexpr u32 ARM7iBIOSCRC32 = 0x4316CC42;
+constexpr u32 ARM7iBIOSCRC32GcdBoot = 0xF0B591A;
 constexpr u32 ARM9iBIOSCRC32 = 0xBAE84F6C;
 }
 
