@@ -27,3 +27,5 @@ freebios/bios*
 freebios/build/
 
 src/*.TMP
+*.user
+.qtcreator
