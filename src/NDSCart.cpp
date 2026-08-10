@@ -137,8 +137,8 @@ void NDSCartSlot::Key1_LoadKeyBuf(bool dsimode) noexcept
         {
             // load from ARM9 BIOS at 0x99A0
 
-            const u8* bios = dsi.ARM9iBIOS.data();
-            memcpy(Key1_KeyBuf.data(), bios + 0x99A0, sizeof(Key1_KeyBuf));
+            const u8* bios = dsi.ARM7iBIOS.data();
+            memcpy(Key1_KeyBuf.data(), bios + 0xB688, sizeof(Key1_KeyBuf));
             Platform::Log(LogLevel::Debug, "NDSCart: Initialized Key1_KeyBuf from ARM9i BIOS\n");
         }
     }
@@ -163,9 +163,24 @@ void NDSCartSlot::Key1_LoadKeyBuf(bool dsimode) noexcept
 
 void NDSCartSlot::Key1_InitKeycode(bool dsi, u32 idcode, u32 level, u32 mod) noexcept
 {
+	Key1_LoadKeyBuf(dsi);
+	u32 keycode[3] = {idcode, idcode>>1, idcode<<1};
+	//Key1_ApplyKeycode(keycode, mod);
+	u32 temp[2] = {0,0};
+
+    for (u32 i = 0; i <= 0x11; i++)
+    {
+        Key1_KeyBuf[i] ^= ByteSwap(keycode[0]);
+    }
+    for (u32 i = 0; i <= 0x410; i+=2)
+    {
+        Key1_Encrypt(temp);
+        Key1_KeyBuf[i  ] = temp[1];
+        Key1_KeyBuf[i+1] = temp[0];
+    }
+	return;
     Key1_LoadKeyBuf(dsi);
 
-    u32 keycode[3] = {idcode, idcode>>1, idcode<<1};
     if (level >= 1) Key1_ApplyKeycode(keycode, mod);
     if (level >= 2) Key1_ApplyKeycode(keycode, mod);
     if (level >= 3)

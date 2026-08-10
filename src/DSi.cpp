@@ -147,8 +147,8 @@ void DSi::Reset()
     crc_full[0] = CRC32(ARM9iBIOS.data(), 0x10000);
     crc_full[1] = CRC32(ARM7iBIOS.data(), 0x10000);
 
-    bool bios9full = (crc_low[0] != ARM9iBIOSLowCRC32) || (crc_full[0] == ARM9iBIOSCRC32);
-    bool bios7full = (crc_low[1] != ARM7iBIOSLowCRC32) || (crc_full[1] == ARM7iBIOSCRC32);
+    bool bios9full = true; //(crc_low[0] != ARM9iBIOSLowCRC32) || (crc_full[0] == ARM9iBIOSCRC32);
+    bool bios7full = true; //(crc_low[1] != ARM7iBIOSLowCRC32) || (crc_full[1] == ARM7iBIOSCRC32);
     FullBIOSBoot = bios9full && bios7full;
     Log(LogLevel::Debug, "DSi: full BIOS boot = %d\n", FullBIOSBoot);
 
